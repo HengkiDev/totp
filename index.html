@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure TOTP Generator</title>
+    <!-- Crypto JS for TOTP generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    
+    <style>
+        :root {
+            --primary-blue: #2196F3;
+            --secondary-blue: #1976D2;
+            --light-blue: #B3E5FC;
+            --dark-blue: #0D47A1;
+            --background-color: #F0F4F8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--background-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        h1 {
+            color: var(--dark-blue);
+            margin-bottom: 25px;
+            font-weight: 600;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--secondary-blue);
+            text-align: left;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid var(--light-blue);
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary-blue);
+        }
+
+        .input-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .input-row > * {
+            flex: 1;
+        }
+
+        #totpDisplay, #urlDisplay {
+            font-size: 24px;
+            color: var(--dark-blue);
+            margin: 20px 0;
+            padding: 15px;
+            background-color: var(--light-blue);
+            border-radius: 10px;
+            font-weight: bold;
+            word-break: break-all;
+            cursor: copy;
+            transition: background-color 0.3s ease;
+        }
+
+        #totpDisplay:hover, #urlDisplay:hover {
+            background-color: var(--primary-blue);
+            color: white;
+        }
+
+        .btn {
+            display: inline-block;
+            background-color: var(--primary-blue);
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn:hover {
+            background-color: var(--secondary-blue);
+        }
+
+        #countdownDisplay {
+            font-size: 16px;
+            color: var(--secondary-blue);
+            margin-bottom: 10px;
+        }
+
+        .progress-container {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 5px;
+            background-color: var(--primary-blue);
+            border-radius: 5px;
+            transition: width 1s linear;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+            }
+
+            .input-row {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Secure TOTP Generator</h1>
+        
+        <div class="input-group">
+            <label for="secretKeyInput">Secret Key</label>
+            <input type="text" id="secretKeyInput" placeholder="Enter Secret Key">
+        </div>
+
+        <div class="input-row">
+            <div class="input-group">
+                <label for="digitCount">Number of Digits</label>
+                <select id="digitCount">
+                    <option value="6">6 Digits</option>
+                    <option value="8">8 Digits</option>
+                    <option value="10">10 Digits</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label for="tokenPeriod">Token Period (seconds)</label>
+                <select id="tokenPeriod">
+                    <option value="30">30 Seconds</option>
+                    <option value="60">60 Seconds</option>
+                    <option value="90">90 Seconds</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+
+        <div id="countdownDisplay">Next token in: 30s</div>
+        <div id="totpDisplay">TOTP: -</div>
+        
+        <div id="urlDisplay">Generated URL will appear here</div>
+        <button id="generateUrlBtn" class="btn">Generate URL</button>
+    </div>
+
+    <script>
+        // Encryption key (in production, use a more secure method)
+        const ENCRYPTION_KEY = 'your-secret-encryption-key-change-this';
+
+        function base32ToHex(base32) {
+            const base32Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+            let bits = '';
+            let hex = '';
+
+            for (let i = 0; i < base32.length; i++) {
+                const val = base32Chars.indexOf(base32[i].toUpperCase());
+                bits += val.toString(2).padStart(5, '0');
+            }
+
+            for (let i = 0; i < bits.length; i += 4) {
+                const chunk = bits.substr(i, 4);
+                hex += parseInt(chunk, 2).toString(16);
+            }
+
+            return hex.padStart(16, '0');
+        }
+
+        function generateTOTP(secretKey, digitCount, tokenPeriod) {
+            const hexKey = base32ToHex(secretKey);
+            const time = Math.floor(Date.now() / (tokenPeriod * 1000));
+            const hmac = CryptoJS.HmacSHA1(
+                CryptoJS.enc.Hex.parse(time.toString(16).padStart(16, '0')), 
+                CryptoJS.enc.Hex.parse(hexKey)
+            );
+
+            const offset = hmac.words[19] & 0xf;
+            const code = (
+                ((hmac.words[offset >> 2] >> (24 - (offset & 3) * 8)) & 0xff) << 24 |
+                ((hmac.words[(offset + 1) >> 2] >> (24 - ((offset + 1) & 3) * 8)) & 0xff) << 16 |
+                ((hmac.words[(offset + 2) >> 2] >> (24 - ((offset + 2) & 3) * 8)) & 0xff) << 8 |
+                ((hmac.words[(offset + 3) >> 2] >> (24 - ((offset + 3) & 3) * 8)) & 0xff)
+            ) & 0x7fffffff;
+
+            const totpCode = (code % Math.pow(10, digitCount)).toString().padStart(digitCount, '0');
+            return totpCode;
+        }
+
+        let countdownInterval;
+
+        function startTokenGeneration() {
+            // Clear any existing intervals
+            if (countdownInterval) clearInterval(countdownInterval);
+
+            const secretKey = document.getElementById('secretKeyInput').value;
+            const digitCount = parseInt(document.getElementById('digitCount').value);
+            const tokenPeriod = parseInt(document.getElementById('tokenPeriod').value);
+
+            if (!secretKey) {
+                alert('Please enter a secret key');
+                return;
+            }
+
+            const totpCode = generateTOTP(secretKey, digitCount, tokenPeriod);
+            const totpDisplay = document.getElementById('totpDisplay');
+            totpDisplay.innerText = `TOTP: ${totpCode}`;
+
+            // Add copy functionality to TOTP display
+            totpDisplay.onclick = () => {
+                navigator.clipboard.writeText(totpCode).then(() => {
+                    alert('TOTP Copied to Clipboard!');
+                });
+            };
+
+            const progressBar = document.getElementById('progressBar');
+            const countdownDisplay = document.getElementById('countdownDisplay');
+
+            // Countdown and progress bar
+            let timeLeft = tokenPeriod;
+            countdownInterval = setInterval(() => {
+                timeLeft--;
+                countdownDisplay.textContent = `Next token in: ${timeLeft}s`;
+                
+                // Update progress bar
+                const progressPercentage = (timeLeft / tokenPeriod) * 100;
+                progressBar.style.width = `${progressPercentage}%`;
+
+                if (timeLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    startTokenGeneration(); // Regenerate token
+                }
+            }, 1000);
+        }
+
+        function generateShareableURL() {
+            const secretKey = document.getElementById('secretKeyInput').value;
+            const digitCount = document.getElementById('digitCount').value;
+            const tokenPeriod = document.getElementById('tokenPeriod').value;
+
+            if (!secretKey) {
+                alert('Please enter a secret key');
+                return;
+            }
+
+            // Encrypt secret key for URL
+            const encryptedKey = encodeURIComponent(
+                CryptoJS.AES.encrypt(secretKey, ENCRYPTION_KEY).toString()
+            );
+
+            // Compact URL generation
+            const shareableURL = `${window.location.origin}${window.location.pathname}?secret=${encryptedKey}&d=${digitCount}&t=${tokenPeriod}`;
+            document.getElementById('urlDisplay').innerText = shareableURL;
+
+            // Add copy functionality to URL display
+            document.getElementById('urlDisplay').onclick = () => {
+                navigator.clipboard.writeText(shareableURL).then(() => {
+                    alert('URL Copied to Clipboard!');
+                });
+            };
+
+            return shareableURL;
+        }
+
+        function decryptURLSecretKey(encryptedKey) {
+            try {
+                return CryptoJS.AES.decrypt(decodeURIComponent(encryptedKey), ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8);
+            } catch (error) {
+                console.error('Decryption error:', error);
+                return null;
+            }
+        }
+
+        function loadFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const encryptedKey = urlParams.get('secret');
+            const digits = urlParams.get('d');
+            const tokenPeriod = urlParams.get('t');
+
+            if (encryptedKey) {
+                const decryptedKey = decryptURLSecretKey(encryptedKey);
+                if (decryptedKey) {
+                    document.getElementById('secretKeyInput').value = decryptedKey;
+                    
+                    if (digits) {
+                        document.getElementById('digitCount').value = digits;
+                    }
+                    
+                    if (tokenPeriod) {
+                        document.getElementById('tokenPeriod').value = tokenPeriod;
+                    }
+
+                    startTokenGeneration();
+                }
+            }
+        }
+
+        // Event listeners
+        document.getElementById('secretKeyInput').addEventListener('input', () => {
+            if (document.getElementById('secretKeyInput').value) {
+                startTokenGeneration();
+            }
+        });
+
+        document.getElementById('digitCount').addEventListener('change', () => {
+            if (document.getElementById('secretKeyInput').value) {
+                startTokenGeneration();
+            }
+        });
+
+        document.getElementById('tokenPeriod').addEventListener('change', () => {
+            if (document.getElementById('secretKeyInput').value) {
+                startTokenGeneration();
+            }
+        });
+
+        document.getElementById('generateUrlBtn').addEventListener('click', generateShareableURL);
+
+        // Load from URL on page load
+        window.addEventListener('load', loadFromURL);
+    </script>
+</body>
+</html>
